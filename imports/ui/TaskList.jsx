@@ -1,124 +1,64 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useTracker } from 'meteor/react-meteor-data';
 import { Tasks } from '../api/tasks';
+import { ProjectTasks } from '../api/projectTasks';
+import { Projects } from '../api/projects';
 
 const TaskList = () => {
-    const tasks = useTracker(() => {
-        Meteor.subscribe('tasks');
-        return Tasks.find({}, { sort: { createdAt: -1 } }).fetch();
+    // Fetch all project-tasks associations
+    const projectTasks = useTracker(() => {
+        Meteor.subscribe('projectTasks');
+        return ProjectTasks.find().fetch();
     });
 
-    const [editingTaskId, setEditingTaskId] = useState(null);
-    const [newDescription, setNewDescription] = useState('');
-    const [activeTaskId, setActiveTaskId] = useState(null);
-    const [elapsedTime, setElapsedTime] = useState(0);
+    // Fetch all tasks associated with the user
+    const taskIds = projectTasks.map(pt => pt.taskId);
+    const tasks = useTracker(() => {
+        Meteor.subscribe('tasks', taskIds);
+        return Tasks.find({ _id: { $in: taskIds } }, { sort: { createdAt: -1 } }).fetch();
+    });
 
-    useEffect(() => {
-        let interval;
-        if (activeTaskId) {
-            interval = setInterval(() => {
-                const task = Tasks.findOne(activeTaskId);
-                if (task && task.isActive && task.startTime) {
-                    const currentTime = new Date();
-                    setElapsedTime(task.elapsedTime + (currentTime - task.startTime));
-                }
-            }, 1000);
-        } else {
-            setElapsedTime(0);
-        }
-        return () => clearInterval(interval);
-    }, [activeTaskId, tasks]);
+    // Fetch all projects
+    const projects = useTracker(() => {
+        Meteor.subscribe('projects');
+        return Projects.find().fetch();
+    });
 
-    const handleEdit = (task) => {
-        setEditingTaskId(task._id);
-        setNewDescription(task.description);
-    };
-
-    const handleUpdate = (taskId) => {
-        Meteor.call('tasks.update', taskId, newDescription, (error) => {
-            if (error) {
-                alert(error.reason || error.message || 'An error occurred');
-            } else {
-                setEditingTaskId(null);
-                setNewDescription('');
-            }
-        });
-    };
+    // Create a map of project IDs to project names
+    const projectMap = projects.reduce((acc, project) => {
+        acc[project._id] = project.name;
+        return acc;
+    }, {});
 
     const handleDelete = (taskId) => {
         Meteor.call('tasks.remove', taskId, (error) => {
             if (error) {
                 alert(error.reason || error.message || 'An error occurred');
+            } else {
+                const projectTask = projectTasks.find(pt => pt.taskId === taskId);
+                if (projectTask) {
+                    Meteor.call('projectTasks.removeTaskFromProject', projectTask.projectId, taskId);
+                }
             }
         });
-    };
-
-    const handleStart = (taskId) => {
-        Meteor.call('tasks.start', taskId, (error) => {
-            if (!error) {
-                setActiveTaskId(taskId);
-            }
-        });
-    };
-
-    const handleStop = (taskId) => {
-        Meteor.call('tasks.stop', taskId, (error) => {
-            if (!error) {
-                setActiveTaskId(null);
-            }
-        });
-    };
-
-    const handleReset = (taskId) => {
-        Meteor.call('tasks.reset', taskId, (error) => {
-            if (!error) {
-                setActiveTaskId(null);
-            }
-        });
-    };
-
-    const formatTime = (milliseconds) => {
-        const totalSeconds = Math.floor(milliseconds / 1000);
-        const hours = Math.floor(totalSeconds / 3600);
-        const minutes = Math.floor((totalSeconds % 3600) / 60);
-        const seconds = totalSeconds % 60;
-        return `${hours}h ${minutes}m ${seconds}s`;
     };
 
     return (
-        <ul>
-            {tasks.map(task => (
-                <li key={task._id}>
-                    {editingTaskId === task._id ? (
-                        <>
-                            <input
-                                type="text"
-                                value={newDescription}
-                                onChange={(e) => setNewDescription(e.target.value)}
-                            />
-                            <button className="save" onClick={() => handleUpdate(task._id)}>Save</button>
-                            <button className="cancel" onClick={() => setEditingTaskId(null)}>Cancel</button>
-                        </>
-                    ) : (
-                        <>
-                            <div>
-                                <div>{task.description}: {task._id === activeTaskId ? formatTime(elapsedTime) : formatTime(task.elapsedTime)}</div>
-                            </div>
-                            <div>
-                                {task.isActive ? (
-                                    <button className="stop" onClick={() => handleStop(task._id)}>Stop</button>
-                                ) : (
-                                    <button className="start" onClick={() => handleStart(task._id)}>Start</button>
-                                )}
-                                <button className="reset" onClick={() => handleReset(task._id)}>Reset</button>
-                                <button className="edit" onClick={() => handleEdit(task)}>Edit</button>
-                                <button className="delete" onClick={() => handleDelete(task._id)}>Delete</button>
-                            </div>
-                        </>
-                    )}
-                </li>
-            ))}
-        </ul>
+        <div>
+            <h2>Tasks</h2>
+            <ul>
+                {tasks.map(task => {
+                    const projectTask = projectTasks.find(pt => pt.taskId === task._id);
+                    const projectName = projectTask ? projectMap[projectTask.projectId] : 'No Project';
+                    return (
+                        <li key={task._id}>
+                            {task.description} - <strong>{projectName}</strong>
+                            <button onClick={() => handleDelete(task._id)}>Delete</button>
+                        </li>
+                    );
+                })}
+            </ul>
+        </div>
     );
 };
 

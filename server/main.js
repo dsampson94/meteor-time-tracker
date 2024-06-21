@@ -1,5 +1,7 @@
 import { Meteor } from 'meteor/meteor';
-import '../imports/api/tasks'; // Import the tasks collection and methods
+import '/imports/api/projects';
+import '/imports/api/tasks';
+import '/imports/api/projectTasks';
 
 Meteor.startup(() => {
   console.log('MONGO_URL:', process.env.MONGO_URL);
